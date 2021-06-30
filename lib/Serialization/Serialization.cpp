@@ -39,6 +39,7 @@
 #include "swift/Basic/Defer.h"
 #include "swift/Basic/Dwarf.h"
 #include "swift/Basic/FileSystem.h"
+#include "swift/Basic/PathRemapper.h"
 #include "swift/Basic/STLExtras.h"
 #include "swift/Basic/Version.h"
 #include "swift/ClangImporter/ClangImporter.h"
@@ -1028,9 +1029,43 @@ void Serializer::writeHeader(const SerializationOptions &options) {
         options_block::SDKPathLayout SDKPath(Out);
         options_block::XCCLayout XCC(Out);
 
-        SDKPath.emit(ScratchRecord, M->getASTContext().SearchPathOpts.SDKPath);
+        const auto &PathRemapper = options.DebugPrefixMap;
+        SDKPath.emit(
+            ScratchRecord,
+            PathRemapper.remapPath(M->getASTContext().SearchPathOpts.SDKPath));
+
+        auto consumeIncludeOption = [](StringRef &arg, StringRef &prefix) {
+          static StringRef options[] = {"-I",
+                                        "-F",
+                                        "-fmodule-map-file=",
+                                        "-iquote",
+                                        "-idirafter",
+                                        "-iframeworkwithsysroot",
+                                        "-iframework",
+                                        "-iprefix",
+                                        "-iwithprefixbefore",
+                                        "-iwithprefix",
+                                        "-isystemafter",
+                                        "-isystem",
+                                        "-isysroot",
+                                        "-ivfsoverlay",
+                                        "-working-directory=",
+                                        "-working-directory"};
+          for (StringRef &option : options)
+            if (arg.consume_front(option)) {
+              prefix = option;
+              return true;
+            }
+          return false;
+        };
+
+        // true if the previous argument was the dash-option of an option pair
+        bool remap_next = false;
         auto &Opts = options.ExtraClangOptions;
-        for (auto Arg = Opts.begin(), E = Opts.end(); Arg != E; ++Arg) { 
+        for (auto Arg = Opts.begin(), E = Opts.end(); Arg != E; ++Arg) {
+          StringRef prefix;
+          StringRef arg(*Arg);
+
           // FIXME: This is a hack and calls for a better design.
           //
           // Filter out any -ivfsoverlay options that include an
@@ -1038,15 +1073,34 @@ void Serializer::writeHeader(const SerializationOptions &options) {
           // buildsystem uses these while *building* mixed Objective-C and Swift
           // frameworks; but they should never be used to *import* the module
           // defined in the framework.
-          if (StringRef(*Arg).startswith("-ivfsoverlay")) {
+          if (arg.startswith("-ivfsoverlay")) {
             auto Next = std::next(Arg);
             if (Next != E &&
                 StringRef(*Next).endswith("unextended-module-overlay.yaml")) {
               ++Arg;
               continue;
             }
+          } else if (arg.startswith("-fdebug-prefix-map=")) {
+            continue;
           }
-          XCC.emit(ScratchRecord, *Arg);
+
+          std::string remapped;
+          if (remap_next) {
+            remap_next = false;
+            remapped = PathRemapper.remapPath(arg);
+            arg = StringRef(remapped);
+          } else if (consumeIncludeOption(arg, prefix)) {
+            if (arg.empty()) {
+              // Option pair
+              remap_next = true;
+              arg = prefix;
+            } else {
+              remapped = prefix.str() + PathRemapper.remapPath(arg);
+              arg = StringRef(remapped);
+            }
+          }
+
+          XCC.emit(ScratchRecord, arg);
         }
       }
     }
@@ -1097,14 +1151,16 @@ void Serializer::writeInputBlock(const SerializationOptions &options) {
   input_block::ModuleInterfaceLayout ModuleInterface(Out);
 
   if (options.SerializeOptionsForDebugging) {
+    const auto &PathMapper = options.DebugPrefixMap;
     const SearchPathOptions &searchPathOpts = M->getASTContext().SearchPathOpts;
     // Put the framework search paths first so that they'll be preferred upon
     // deserialization.
     for (auto &framepath : searchPathOpts.FrameworkSearchPaths)
       SearchPath.emit(ScratchRecord, /*framework=*/true, framepath.IsSystem,
-                      framepath.Path);
+                      PathMapper.remapPath(framepath.Path));
     for (auto &path : searchPathOpts.ImportSearchPaths)
-      SearchPath.emit(ScratchRecord, /*framework=*/false, /*system=*/false, path);
+      SearchPath.emit(ScratchRecord, /*framework=*/false, /*system=*/false,
+                      PathMapper.remapPath(path));
   }
 
   // Note: We're not using StringMap here because we don't need to own the

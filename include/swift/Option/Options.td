@@ -798,6 +798,10 @@ def debug_info_format : Joined<["-"], "debug-info-format=">,
   Flags<[FrontendOption]>,
   HelpText<"Specify the debug info format type to either 'dwarf' or 'codeview'">;
 
+def prefix_serialized_debug_info : Flag<["-"], "prefix-serialized-debug-info">,
+  Flags<[FrontendOption]>,
+  HelpText<"Apply debug prefix mappings to serialized debug info in Swiftmodule files">;
+
 // Verify debug info
 def verify_debug_info : Flag<["-"], "verify-debug-info">,
   Flags<[NoInteractiveOption, DoesNotAffectIncrementalBuild]>,

@@ -15,6 +15,7 @@
 
 #include "swift/Basic/LLVM.h"
 #include "llvm/Support/VersionTuple.h"
+#include "swift/Basic/PathRemapper.h"
 
 namespace swift {
 
@@ -41,6 +42,9 @@ namespace swift {
     StringRef ModuleLinkName;
     StringRef ModuleInterface;
     ArrayRef<std::string> ExtraClangOptions;
+
+    /// Path prefixes that should be rewritten in debug info.
+    PathRemapper DebugPrefixMap;
 
     /// Describes a single-file dependency for this module, along with the
     /// appropriate strategy for how to verify if it's up-to-date.

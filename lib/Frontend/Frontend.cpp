@@ -182,6 +182,11 @@ SerializationOptions CompilerInvocation::computeSerializationOptions(
       opts.SerializeOptionsForDebugging.getValueOr(
           !isModuleExternallyConsumed(module));
 
+  if (serializationOpts.SerializeOptionsForDebugging &&
+      opts.DebugPrefixSerializedDebuggingOptions) {
+    serializationOpts.DebugPrefixMap = getIRGenOptions().DebugPrefixMap;
+  }
+
   serializationOpts.DisableCrossModuleIncrementalInfo =
       opts.DisableCrossModuleIncrementalBuild;
 
